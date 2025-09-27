@@ -1,0 +1,2 @@
+# crawler_webapp_pythonanywhere
+SEO用サイトクローラー
