@@ -95,11 +95,14 @@
         fetch('/api/progress')
             .then(response => response.json())
             .then(data => {
+                // デバッグ用ログ
+                console.log('API Response:', data);
+
                 // 進捗バーを更新
                 document.getElementById('progress-bar').style.width = data.percentage + '%';
                 document.getElementById('progress-percentage').textContent = data.percentage + '%';
-                document.getElementById('current-pages').textContent = data.current;
-                document.getElementById('total-pages').textContent = data.total;
+                document.getElementById('current-pages').textContent = data.current_page;
+                document.getElementById('total-pages').textContent = data.total_pages;
                 document.getElementById('status-message').textContent = data.status;
 
                 // 経過時間を計算
