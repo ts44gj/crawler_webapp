@@ -34,7 +34,7 @@ class WebCrawlerRender:
     def extract_page_info(self, url, response):
         """ページ情報を抽出"""
         try:
-            soup = BeautifulSoup(response.content, 'html.parser')
+            soup = BeautifulSoup(response.content, 'html5lib')
             
             # タイトル
             title = soup.find('title')
@@ -160,7 +160,7 @@ class WebCrawlerRender:
                     
                     # 内部リンクを収集
                     if response.status_code == 200:
-                        soup = BeautifulSoup(response.content, 'html.parser')
+                        soup = BeautifulSoup(response.content, 'html5lib')
                         links = soup.find_all('a', href=True)
                         
                         for link in links:
