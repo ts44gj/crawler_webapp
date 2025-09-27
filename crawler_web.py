@@ -19,6 +19,8 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from webdriver_manager.chrome import ChromeDriverManager
+from concurrent.futures import ThreadPoolExecutor
+import threading
 
 class WebCrawlerRender:
     """Render用Webクローラー"""
@@ -122,72 +124,107 @@ class WebCrawlerRender:
     def crawl_website_with_progress(self, start_url, max_pages=50, progress_callback=None):
         """ウェブサイトをクロール（進捗コールバック付き）"""
         try:
+            # 高速化設定
+            MAX_WORKERS = 3  # 並列処理数（無料プランでは控えめに）
+            
             # 開始URLをキューに追加
             queue = [start_url]
             self.visited_urls = set()
             self.results = []
+            self.lock = threading.Lock()
             
             # ドメインを取得
             parsed_start = urlparse(start_url)
             base_domain = f"{parsed_start.scheme}://{parsed_start.netloc}"
             
-            progress_callback(0, max_pages, "クロール開始...")
+            progress_callback(0, max_pages, "高速クロール開始...")
             
             while queue and len(self.results) < max_pages:
-                current_url = queue.pop(0)
+                # 並列処理用のURLバッチを作成
+                batch_size = min(MAX_WORKERS, len(queue), max_pages - len(self.results))
+                batch_urls = []
                 
-                if current_url in self.visited_urls:
-                    continue
+                for _ in range(batch_size):
+                    if queue:
+                        batch_urls.append(queue.pop(0))
                 
-                self.visited_urls.add(current_url)
+                if not batch_urls:
+                    break
                 
-                try:
-                    # リクエスト送信
-                    response = self.session.get(current_url, timeout=10)
+                # 並列処理でページを取得
+                with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+                    futures = [executor.submit(self._process_single_page, url, parsed_start) for url in batch_urls]
                     
-                    # リダイレクト情報を取得
-                    redirect_info = self.get_redirect_info(response)
-                    
-                    # ページ情報を抽出
-                    page_info = self.extract_page_info(current_url, response)
-                    page_info.update(redirect_info)
-                    
-                    self.results.append(page_info)
-                    
-                    # 進捗を更新
-                    current_count = len(self.results)
-                    progress_callback(current_count, max_pages, f"進捗: {current_count}/{max_pages}ページ収集完了")
-                    
-                    # 内部リンクを収集
-                    if response.status_code == 200:
-                        soup = BeautifulSoup(response.content, 'html5lib')
-                        links = soup.find_all('a', href=True)
-                        
-                        for link in links:
-                            href = link.get('href')
-                            if href:
-                                # 絶対URLに変換
-                                absolute_url = urljoin(current_url, href)
-                                parsed_url = urlparse(absolute_url)
-                                
-                                # 同じドメインのリンクのみを追加
-                                if (parsed_url.netloc == parsed_start.netloc and 
-                                    absolute_url not in self.visited_urls and
-                                    not absolute_url.startswith('#') and
-                                    absolute_url not in queue):
-                                    queue.append(absolute_url)
-                    
-                    # リクエスト間隔を空ける
-                    time.sleep(1)
-                    
-                except Exception as e:
-                    print(f"ページ取得エラー {current_url}: {str(e)}")
-                    continue
+                    for future in futures:
+                        try:
+                            result = future.result(timeout=15)  # タイムアウト短縮
+                            if result:
+                                with self.lock:
+                                    self.results.append(result)
+                                    
+                                    # 進捗を更新
+                                    current_count = len(self.results)
+                                    progress_callback(current_count, max_pages, f"高速収集中: {current_count}/{max_pages}ページ完了")
+                                    
+                                    # 新しいリンクをキューに追加
+                                    if result.get('new_links'):
+                                        for link in result['new_links']:
+                                            if (link not in self.visited_urls and 
+                                                link not in queue and 
+                                                len(queue) < 100):  # キューサイズ制限
+                                                queue.append(link)
+                        except Exception as e:
+                            print(f"並列処理エラー: {str(e)}")
+                            continue
+                
+                # 短い待機時間
+                time.sleep(0.2)
             
-            progress_callback(len(self.results), max_pages, f"完了！ {len(self.results)}件のページを収集しました")
+            progress_callback(len(self.results), max_pages, f"高速完了！ {len(self.results)}件のページを収集しました")
             return self.results
             
         except Exception as e:
             print(f"クロールエラー: {str(e)}")
             progress_callback(0, max_pages, f"エラー: {str(e)}")
             return []
+    
+    def _process_single_page(self, url, parsed_start):
+        """単一ページの処理（並列処理用）"""
+        try:
+            with self.lock:
+                if url in self.visited_urls:
+                    return None
+                self.visited_urls.add(url)
+            
+            # リクエスト送信（タイムアウト短縮）
+            response = self.session.get(url, timeout=8)
+            
+            # リダイレクト情報を取得
+            redirect_info = self.get_redirect_info(response)
+            
+            # ページ情報を抽出
+            page_info = self.extract_page_info(url, response)
+            page_info.update(redirect_info)
+            
+            # 新しいリンクを収集
+            new_links = []
+            if response.status_code == 200:
+                soup = BeautifulSoup(response.content, 'html5lib')
+                links = soup.find_all('a', href=True)
+                
+                for link in links:
+                    href = link.get('href')
+                    if href:
+                        absolute_url = urljoin(url, href)
+                        parsed_url = urlparse(absolute_url)
+                        
+                        if (parsed_url.netloc == parsed_start.netloc and 
+                            not absolute_url.startswith('#')):
+                            new_links.append(absolute_url)
+            
+            page_info['new_links'] = new_links
+            return page_info
+            
+        except Exception as e:
+            print(f"ページ処理エラー {url}: {str(e)}")
+            return None
