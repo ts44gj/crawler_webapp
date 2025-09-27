@@ -6,12 +6,13 @@ PythonAnywhere用Flaskアプリケーション
 PythonAnywhere環境に最適化された設定
 """
 
-from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, send_file
+from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, send_file, session
 import os
 import json
 import csv
 from datetime import datetime
 import threading
+import uuid
 from crawler_web import WebCrawlerRender
 
 # Flaskアプリケーションの初期化
@@ -21,6 +22,7 @@ app = Flask(__name__)
 app.config['SECRET_KEY'] = 'render-crawler-2024-secure-key'
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB
 app.config['DEBUG'] = False  # 本番環境ではFalse
+app.config['PERMANENT_SESSION_LIFETIME'] = 3600  # セッション有効期限: 1時間
 
 # Renderでは制限なし
 MAX_PAGES_LIMIT = 1000  # Renderでは制限なし
@@ -41,15 +43,26 @@ crawl_progress = {
     'start_time': None
 }
 
+# アクティブなクロールの管理（セッションID別）
+active_crawls = {}
+
 @app.route('/')
 def index():
     """メインページ"""
+    # 既存のクロールを停止
+    if 'crawl_session_id' in session:
+        session_id = session['crawl_session_id']
+        if session_id in active_crawls:
+            active_crawls[session_id]['stop_flag'] = True
+            del active_crawls[session_id]
+        session.pop('crawl_session_id', None)
+    
     return render_template('index.html')
 
 @app.route('/crawl', methods=['POST'])
 def crawl():
     """クロール開始"""
-    global crawl_progress
+    global crawl_progress, active_crawls
     
     try:
         url = request.form.get('url', '').strip()
@@ -64,7 +77,15 @@ def crawl():
             flash(f'大量のページクロールは時間がかかります。最大{MAX_PAGES_LIMIT}ページまで推奨', 'info')
             max_pages = MAX_PAGES_LIMIT
         
-        # 進捗をリセット
+        # セッションIDを生成（既存のクロールを停止）
+        session_id = str(uuid.uuid4())
+        session['crawl_session_id'] = session_id
+        
+        # 既存のクロールを停止
+        if session_id in active_crawls:
+            active_crawls[session_id]['stop_flag'] = True
+        
+        # 新しいクロールの進捗を初期化
         crawl_progress = {
             'is_running': True,
             'current_page': 0,
@@ -72,13 +93,24 @@ def crawl():
             'percentage': 0,
             'status': 'クロール開始中...',
             'results': [],
-            'start_time': datetime.now()
+            'start_time': datetime.now(),
+            'session_id': session_id
+        }
+        
+        # アクティブクロールに追加
+        active_crawls[session_id] = {
+            'progress': crawl_progress,
+            'stop_flag': False,
+            'thread': None
         }
         
         # バックグラウンドでクロール実行
-        thread = threading.Thread(target=crawl_background, args=(url, max_pages))
+        thread = threading.Thread(target=crawl_background, args=(url, max_pages, session_id))
         thread.daemon = True
         thread.start()
+        
+        # スレッドを保存
+        active_crawls[session_id]['thread'] = thread
         
         return redirect(url_for('progress'))
         
@@ -86,32 +118,56 @@ def crawl():
         flash(f'エラーが発生しました: {str(e)}', 'error')
         return redirect(url_for('index'))
 
-def crawl_background(url, max_pages):
+def crawl_background(url, max_pages, session_id):
     """バックグラウンドでクロール実行"""
-    global crawl_progress
+    global crawl_progress, active_crawls
     
     try:
         crawler = WebCrawlerRender()
         
         def update_progress(current, total, status):
+            # セッションが有効かチェック
+            if session_id not in active_crawls or active_crawls[session_id]['stop_flag']:
+                return False  # クロール停止
+            
             crawl_progress['current_page'] = current
             crawl_progress['total_pages'] = total
             crawl_progress['percentage'] = int((current / total) * 100) if total > 0 else 0
             crawl_progress['status'] = status
+            return True
         
         results = crawler.crawl_website_with_progress(url, max_pages, update_progress)
-        crawl_progress['results'] = results
-        crawl_progress['is_running'] = False
-        crawl_progress['status'] = f'完了！ {len(results)}件のページを収集しました'
+        
+        # セッションが有効な場合のみ結果を保存
+        if session_id in active_crawls and not active_crawls[session_id]['stop_flag']:
+            crawl_progress['results'] = results
+            crawl_progress['is_running'] = False
+            crawl_progress['status'] = f'完了！ {len(results)}件のページを収集しました'
+        else:
+            crawl_progress['is_running'] = False
+            crawl_progress['status'] = 'クロールが中断されました'
+        
+        # アクティブクロールから削除
+        if session_id in active_crawls:
+            del active_crawls[session_id]
         
     except Exception as e:
         crawl_progress['is_running'] = False
         crawl_progress['status'] = f'エラー: {str(e)}'
         print(f"クロールエラー: {str(e)}")  # Renderのログに出力
+        
+        # アクティブクロールから削除
+        if session_id in active_crawls:
+            del active_crawls[session_id]
 
 @app.route('/progress')
 def progress():
     """進捗表示ページ"""
+    # セッションが無効な場合はトップページにリダイレクト
+    if 'crawl_session_id' not in session:
+        flash('セッションが無効です。新しいクロールを開始してください。', 'warning')
+        return redirect(url_for('index'))
+    
     return render_template('progress.html')
 
 @app.route('/api/progress')
