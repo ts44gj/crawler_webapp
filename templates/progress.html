@@ -1,0 +1,179 @@
+{% extends "base.html" %}
+
+{% block title %}クロール進捗 - Webクローラー{% endblock %}
+
+{% block content %}
+<div class="max-w-4xl mx-auto">
+    <!-- 進捗表示カード -->
+    <div class="bg-white rounded-lg shadow-lg p-8">
+        <div class="text-center mb-8">
+            <h2 class="text-3xl font-bold text-gray-800 mb-2">クロール進捗</h2>
+            <p class="text-gray-600">ウェブサイトの情報を収集中です...</p>
+        </div>
+
+        <!-- 進捗バー -->
+        <div class="mb-8">
+            <div class="flex justify-between items-center mb-2">
+                <span class="text-sm font-medium text-gray-700" id="progress-text">準備中...</span>
+                <span class="text-sm font-medium text-gray-700" id="progress-percentage">0%</span>
+            </div>
+            <div class="w-full bg-gray-200 rounded-full h-4">
+                <div id="progress-bar" class="bg-blue-600 h-4 rounded-full transition-all duration-300 ease-out"
+                    style="width: 0%"></div>
+            </div>
+        </div>
+
+        <!-- 詳細情報 -->
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+            <div class="bg-blue-50 rounded-lg p-4">
+                <div class="flex items-center">
+                    <svg class="w-8 h-8 text-blue-600 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z">
+                        </path>
+                    </svg>
+                    <div>
+                        <p class="text-sm text-gray-600">収集済みページ</p>
+                        <p class="text-2xl font-bold text-blue-600" id="current-pages">0</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="bg-green-50 rounded-lg p-4">
+                <div class="flex items-center">
+                    <svg class="w-8 h-8 text-green-600 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M13 10V3L4 14h7v7l9-11h-7z"></path>
+                    </svg>
+                    <div>
+                        <p class="text-sm text-gray-600">最大ページ数</p>
+                        <p class="text-2xl font-bold text-green-600" id="total-pages">0</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="bg-purple-50 rounded-lg p-4">
+                <div class="flex items-center">
+                    <svg class="w-8 h-8 text-purple-600 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                    </svg>
+                    <div>
+                        <p class="text-sm text-gray-600">経過時間</p>
+                        <p class="text-2xl font-bold text-purple-600" id="elapsed-time">00:00</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ステータス表示 -->
+        <div class="bg-gray-50 rounded-lg p-4">
+            <h3 class="text-lg font-semibold text-gray-800 mb-2">現在の状況</h3>
+            <p class="text-gray-600" id="status-message">準備中...</p>
+        </div>
+
+        <!-- 完了時のボタン（非表示） -->
+        <div id="completion-actions" class="hidden mt-8 text-center">
+            <a href="{{ url_for('index') }}"
+                class="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 px-6 rounded-lg transition-colors duration-200 mr-4">
+                新しいクロールを開始
+            </a>
+            <button onclick="downloadResults()"
+                class="bg-green-600 hover:bg-green-700 text-white font-semibold py-3 px-6 rounded-lg transition-colors duration-200">
+                結果をダウンロード
+            </button>
+        </div>
+    </div>
+</div>
+
+<script>
+    let startTime = Date.now();
+    let progressInterval;
+
+    // 進捗を定期的に取得
+    function updateProgress() {
+        fetch('/api/progress')
+            .then(response => response.json())
+            .then(data => {
+                // 進捗バーを更新
+                document.getElementById('progress-bar').style.width = data.percentage + '%';
+                document.getElementById('progress-percentage').textContent = data.percentage + '%';
+                document.getElementById('current-pages').textContent = data.current;
+                document.getElementById('total-pages').textContent = data.total;
+                document.getElementById('status-message').textContent = data.status;
+
+                // 経過時間を計算
+                const elapsed = Math.floor((Date.now() - startTime) / 1000);
+                const minutes = Math.floor(elapsed / 60);
+                const seconds = elapsed % 60;
+                document.getElementById('elapsed-time').textContent =
+                    String(minutes).padStart(2, '0') + ':' + String(seconds).padStart(2, '0');
+
+                // 完了時の処理
+                if (!data.is_running && data.results.length > 0) {
+                    clearInterval(progressInterval);
+                    document.getElementById('completion-actions').classList.remove('hidden');
+                    document.getElementById('status-message').textContent = 'クロールが完了しました！';
+                    // 結果ページにリダイレクト
+                    setTimeout(() => {
+                        window.location.href = '/results';
+                    }, 2000);
+                }
+            })
+            .catch(error => {
+                console.error('進捗取得エラー:', error);
+            });
+    }
+
+    // 結果をダウンロード
+    function downloadResults() {
+        fetch('/api/progress')
+            .then(response => response.json())
+            .then(data => {
+                if (data.results && data.results.length > 0) {
+                    // CSV形式でダウンロード
+                    const csvContent = convertToCSV(data.results);
+                    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+                    const link = document.createElement('a');
+                    link.href = URL.createObjectURL(blob);
+                    link.download = 'crawl_results.csv';
+                    link.click();
+                }
+            });
+    }
+
+    // 結果をCSV形式に変換
+    function convertToCSV(results) {
+        const headers = ['URL', 'Index Status', 'Title', 'H1', 'H2-1', 'H2-2', 'H2-3', 'Description', 'Canonical URL', 'Is Redirect', 'Redirect Chain', 'Final URL', 'Status Code'];
+        const csvRows = [headers.join(',')];
+
+        results.forEach(result => {
+            const row = [
+                result.url,
+                result.index_status,
+                `"${result.title}"`,
+                `"${result.h1}"`,
+                `"${result.h2_1}"`,
+                `"${result.h2_2}"`,
+                `"${result.h2_3}"`,
+                `"${result.description}"`,
+                result.canonical_url,
+                result.is_redirect,
+                `"${result.redirect_chain}"`,
+                result.final_url,
+                result.status_code
+            ];
+            csvRows.push(row.join(','));
+        });
+
+        return csvRows.join('\n');
+    }
+
+    // ページ読み込み時に進捗監視を開始
+    document.addEventListener('DOMContentLoaded', function () {
+        startTime = Date.now();
+        progressInterval = setInterval(updateProgress, 1000); // 1秒ごとに更新
+        updateProgress(); // 初回実行
+    });
+</script>
+{% endblock %}
