@@ -52,11 +52,11 @@ class WebCrawlerRender:
                 else:
                     h1_text = h1_tag.get_text().strip()
             
-            # H2タグ（最大3個まで）
-            h2_tags = soup.find_all('h2')[:3]
+            # H2タグ（最大2個まで、速度アップのため）
+            h2_tags = soup.find_all('h2')[:2]
             h2_1 = h2_tags[0].get_text().strip() if len(h2_tags) > 0 else ''
             h2_2 = h2_tags[1].get_text().strip() if len(h2_tags) > 1 else ''
-            h2_3 = h2_tags[2].get_text().strip() if len(h2_tags) > 2 else ''
+            h2_3 = ''  # 速度アップのため収集停止
             
             # メタディスクリプション
             meta_desc = soup.find('meta', attrs={'name': 'description'})
@@ -77,13 +77,13 @@ class WebCrawlerRender:
                 'h1': h1_text,
                 'h2_1': h2_1,
                 'h2_2': h2_2,
-                'h2_3': h2_3,
+                'h2_3': h2_3,  # 空文字（速度アップのため）
                 'description': description,
                 'canonical_url': canonical_url,
                 'index_status': index_status,
-                'is_redirect': False,
-                'redirect_chain': '',
-                'final_url': url,
+                'is_redirect': False,  # 速度アップのため固定値
+                'redirect_chain': '',  # 速度アップのため空文字
+                'final_url': url,  # 速度アップのため元URLと同じ
                 'status_code': response.status_code
             }
             
@@ -95,13 +95,13 @@ class WebCrawlerRender:
                 'h1': '',
                 'h2_1': '',
                 'h2_2': '',
-                'h2_3': '',
-                'description': '',
+                'h2_3': '',  # 速度アップのため空文字
+                'description': '',  # メタディスクリプション
                 'canonical_url': '',
                 'index_status': 'error',
-                'is_redirect': False,
-                'redirect_chain': '',
-                'final_url': url,
+                'is_redirect': False,  # 速度アップのため固定値
+                'redirect_chain': '',  # 速度アップのため空文字
+                'final_url': url,  # 速度アップのため元URLと同じ
                 'status_code': response.status_code
             }
     
@@ -199,12 +199,8 @@ class WebCrawlerRender:
             # リクエスト送信（タイムアウト短縮）
             response = self.session.get(url, timeout=8)
             
-            # リダイレクト情報を取得
-            redirect_info = self.get_redirect_info(response)
-            
-            # ページ情報を抽出
+            # ページ情報を抽出（リダイレクト情報は速度アップのため収集停止）
             page_info = self.extract_page_info(url, response)
-            page_info.update(redirect_info)
             
             # 新しいリンクを収集
             new_links = []
