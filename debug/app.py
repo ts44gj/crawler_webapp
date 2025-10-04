@@ -181,7 +181,7 @@ def show_results():
         # CSVファイルに保存
         with open(csv_filepath, 'w', newline='', encoding='utf-8') as f:
             writer = csv.writer(f)
-            writer.writerow(['URL', 'Index Status', 'Title', 'H1', 'H2-1', 'H2-2', 'H2-3', 'Description', 'Canonical URL', 'Is Redirect', 'Redirect Chain', 'Final URL', 'Status Code'])
+            writer.writerow(['URL', 'Index Status', 'Title', 'H1', 'H2-1', 'H2-2', 'Description', 'Canonical URL', 'Status Code'])
             for result in crawl_progress['results']:
                 writer.writerow([
                     result['url'],
@@ -190,12 +190,8 @@ def show_results():
                     result['h1'],
                     result['h2_1'],
                     result['h2_2'],
-                    result['h2_3'],
                     result['description'],
                     result['canonical_url'],
-                    result['is_redirect'],
-                    result['redirect_chain'],
-                    result['final_url'],
                     result['status_code']
                 ])
         
