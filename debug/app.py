@@ -65,7 +65,7 @@ def crawl():
         print("🚀 クロール開始リクエスト受信")
         
         url = request.form.get('url', '').strip()
-        max_pages = int(request.form.get('max_pages', 10))
+        max_pages = int(request.form.get('max_pages', 50))
         
         print(f"📝 URL: {url}")
         print(f"📝 最大ページ数: {max_pages}")
